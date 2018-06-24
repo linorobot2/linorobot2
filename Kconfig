@@ -1,0 +1,31 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+config LINOROBOT2_CLIENT
+	bool "Linorobot ROS2 client"
+	default n
+	depends on MICRORTPS_CLIENT
+	---help---
+		Enable Linorobot ROS2 client
+
+if LINOROBOT2_CLIENT
+
+config LINOROBOT2_CLIENT_PROGNAME
+	string "Program name"
+	default "linorobot2"
+	depends on BUILD_KERNEL
+	---help---
+		This is the name of the program that will be use when the NSH ELF
+		program is installed.
+
+#config LINOROBOT2_CLIENT_PRIORITY
+#	int "Client task priority"
+#	default 100
+#
+#config LINOROBOT2_CLIENT_STACKSIZE
+#	int "Client stack size"
+#	default 2048
+
+endif
