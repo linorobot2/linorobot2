@@ -1,4 +1,4 @@
-# linorobot2_ex
+# linorobot2
 
 Experimental codes to port [Linorobot](https://github.com/linorobot/linorobot) to ROS2.
 
