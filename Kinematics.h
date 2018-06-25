@@ -30,23 +30,45 @@
 
 #include "LinoConfig.h"
 #include "ArduinoShim.h"
+#include <math.h>
 
-struct rpm
+typedef enum base {DIFFERENTIAL_DRIVE, SKID_STEER, ACKERMANN, MECANUM}base;
+
+typedef struct Kinematics
+{
+    base lino_base;
+    int max_rpm;
+    float wheels_x_distance;
+    float wheels_y_distance;
+    float circumference;    
+}Kinematics;
+
+typedef struct RPM
 {
     int motor1;
     int motor2;
     int motor3;
     int motor4;
-};
+}RPM;
 
-struct velocities
+typedef struct Velocities
 {
     float linear_x;
     float linear_y;
     float angular_z;
-};
+}Velocities;
 
-struct rpm calculateRPM(float linear_x, float linear_y, float angular_z)
+void newKinematics(Kinematics *kinematics, base base_platform, int max_rpm, float wheel_diameter, 
+    float wheels_x_distance, float wheels_y_distance)
+{
+    kinematics->lino_base = base_platform;
+    kinematics->max_rpm = max_rpm;
+    kinematics->wheels_x_distance = wheels_x_distance;
+    kinematics->wheels_y_distance = wheels_y_distance;
+    kinematics->circumference  =  M_PI * wheel_diameter;
+}
+
+RPM calculateRPM(Kinematics *kinematics, float linear_x, float linear_y, float angular_z)
 {
     float linear_vel_x_mins;
     float linear_vel_y_mins;
@@ -63,82 +85,85 @@ struct rpm calculateRPM(float linear_x, float linear_y, float angular_z)
     //convert rad/s to rad/min
     angular_vel_z_mins = angular_z * 60;
 
-    tangential_vel = angular_vel_z_mins * ((WHEELS_X_DISTANCE / 2) + (WHEELS_y_DISTANCE / 2));
+    tangential_vel = angular_vel_z_mins * ((kinematics->wheels_x_distance / 2) + (kinematics->wheels_y_distance / 2));
 
-    x_rpm = linear_vel_x_mins / WHEEL_CIRCUMFERENCE;
-    y_rpm = linear_vel_y_mins / WHEEL_CIRCUMFERENCE;
-    tan_rpm = tangential_vel / WHEEL_CIRCUMFERENCE;
+    x_rpm = linear_vel_x_mins / kinematics->circumference;
+    y_rpm = linear_vel_y_mins / kinematics->circumference;
+    tan_rpm = tangential_vel / kinematics->circumference;
 
-    struct rpm rpm;
+    RPM rpm;
 
     //calculate for the target motor RPM and direction
     //front-left motor
     rpm.motor1 = x_rpm - y_rpm - tan_rpm;
-    rpm.motor1 = constrain(rpm.motor1, -MAX_RPM, MAX_RPM);
+    rpm.motor1 = constrain(rpm.motor1, -kinematics->max_rpm, kinematics->max_rpm);
 
     //front-right motor
     rpm.motor2 = x_rpm + y_rpm + tan_rpm;
-    rpm.motor2 = constrain(rpm.motor2, -MAX_RPM, MAX_RPM);
+    rpm.motor2 = constrain(rpm.motor2, -kinematics->max_rpm, kinematics->max_rpm);
 
     //rear-left motor
     rpm.motor3 = x_rpm + y_rpm - tan_rpm;
-    rpm.motor3 = constrain(rpm.motor3, -MAX_RPM, MAX_RPM);
+    rpm.motor3 = constrain(rpm.motor3, -kinematics->max_rpm, kinematics->max_rpm);
 
     //rear-right motor
     rpm.motor4 = x_rpm - y_rpm + tan_rpm;
-    rpm.motor4 = constrain(rpm.motor4, -MAX_RPM, MAX_RPM);
+    rpm.motor4 = constrain(rpm.motor4, -kinematics->max_rpm, kinematics->max_rpm);
 
     return rpm;
 }
 
-struct rpm getRPM(float linear_x, float linear_y, float angular_z)
+RPM getRPM(Kinematics *kinematics, float linear_x, float linear_y, float angular_z)
 {
-    struct rpm rpm;
+    RPM rpm;
 
-    #if defined(DIFFERENTIAL_DRIVE) || defined(SKID_STEER)
-        rpm = calculateRPM(linear_x, 0.0 , angular_z);
+    if(kinematics->lino_base == DIFFERENTIAL_DRIVE || kinematics->lino_base == SKID_STEER)
+        rpm = calculateRPM(kinematics, linear_x, 0.0 , angular_z);
 
-    #elif defined(ACKERMANN)
-        rpm = calculateRPM(linear_x, 0.0, 0.0);
-
-    #elif defined(MECANUM)
-        rpm = calculateRPM(linear_x, linear_y, angular_z);
+    else if(kinematics->lino_base == ACKERMANN)
+        rpm = calculateRPM(kinematics, linear_x, 0.0, 0.0);
     
-    #endif
-    
+    else if(kinematics->lino_base == MECANUM)
+        rpm = calculateRPM(kinematics, linear_x, linear_y, angular_z);
+        
     return rpm;
 }
 
-struct velocities getVelocities(int motor1, int motor2, int motor3, int motor4)
+Velocities getVelocities(Kinematics *kinematics, int motor1, int motor2, int motor3, int motor4)
 {
-    #if defined(DIFFERENTIAL_DRIVE) || defined(ACKERMANN)
-        int total_motors = 2;
+    int total_motors;
+
+    if(kinematics->lino_base == DIFFERENTIAL_DRIVE || kinematics->lino_base == ACKERMANN)
+    {
+        total_motors = 2;
         motor3 = 0;
         motor4 = 0;
-    
-    #elif defined(SKID_STEER) || defined(MECANUM)
-        int total_motors = 4;
-    #endif
+    }
 
-    struct velocities vel;
+    else if(kinematics->lino_base == SKID_STEER || kinematics->lino_base == MECANUM)
+    {
+        total_motors = 4;
+    }
+
+    Velocities vel;
 
     float average_rpm_x = (motor1 + motor2 + motor3 + motor4) / total_motors; // RPM
     //convert revolutions per minute to revolutions per second
     float average_rps_x = average_rpm_x / 60; // RPS
 
-    vel.linear_x = average_rps_x * WHEEL_CIRCUMFERENCE; // m/s
+    vel.linear_x = average_rps_x * kinematics->circumference; // m/s
 
     float average_rpm_y = (-motor1 + motor2 + motor3 - motor4) / total_motors; // RPM
     //convert revolutions per minute in y axis to revolutions per second
     float average_rps_y = average_rpm_y / 60; // RPS
 
-    vel.linear_y = average_rps_y * WHEEL_CIRCUMFERENCE; // m/s
+    vel.linear_y = average_rps_y * kinematics->circumference; // m/s
 
     float average_rpm_a = (-motor1 + motor2 - motor3 + motor4) / total_motors;
     //convert revolutions per minute to revolutions per second
     float average_rps_a = average_rpm_a / 60;
 
-    vel.angular_z =  (average_rps_a * WHEEL_CIRCUMFERENCE) / ((WHEELS_X_DISTANCE / 2) + (WHEELS_y_DISTANCE / 2)); //  rad/s
+    vel.angular_z =  (average_rps_a * kinematics->circumference) / ((kinematics->wheels_x_distance / 2) + (kinematics->wheels_y_distance / 2)); //  rad/s
 
     return vel;
 }
